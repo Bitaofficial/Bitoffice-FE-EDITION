@@ -1,23 +1,27 @@
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { FileText, PenTool, Table, Presentation, Mail, Calendar, ArrowRight, User, Settings, LogOut, X } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { FileText, PenTool, Table, Presentation, Mail, Calendar, ArrowRight, User, Settings, LogOut, X, Plus, Folder, File, ChevronRight, ChevronDown, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight, List, ListOrdered } from "lucide-react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import Link from "next/link"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Toggle } from "@/components/ui/toggle"
 
-function SignInPage({ onSignIn, onSignUp }) {
+function SignInPage({ onSignIn, onSignUp, users }) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    // In a real application, you would validate against a backend service
-    // For this example, we'll use a hardcoded email and password
-    if (email === "user@example.com" && password === "password123") {
-      onSignIn({ name: "User", email: email })
+    console.log("Entered email:", email)
+    console.log("Registered users:", users)
+    const user = users.find(u => u.email === email && u.password === password)
+    if (user) {
+      onSignIn(user)
     } else {
       setError("Error: Invalid email or password")
     }
@@ -75,7 +79,7 @@ function SignInPage({ onSignIn, onSignUp }) {
   )
 }
 
-function SignUpPage({ onSignUp }) {
+function SignUpPage({ onSignUp, users, setUsers }) {
   const [formData, setFormData] = useState({ name: "", email: "", password: "", confirmPassword: "" })
   const [error, setError] = useState("")
 
@@ -89,8 +93,18 @@ function SignUpPage({ onSignUp }) {
       setError("Passwords do not match")
       return
     }
-    // In a real application, you would send this data to your backend
-    onSignUp({ name: formData.name, email: formData.email })
+    if (users.some(user => user.email === formData.email)) {
+      setError("Email already exists")
+      return
+    }
+    const newUser = {
+      name: formData.name,
+      email: formData.email,
+      password: formData.password
+    }
+    setUsers([...users, newUser])
+    localStorage.setItem('users', JSON.stringify([...users, newUser]))
+    onSignUp(newUser)
   }
 
   return (
@@ -171,10 +185,88 @@ function SignUpPage({ onSignUp }) {
   )
 }
 
+function FileExplorer({ files, onFileSelect }) {
+  const [expandedFolders, setExpandedFolders] = useState({})
+
+  const toggleFolder = (folderId) => {
+    setExpandedFolders(prev => ({
+      ...prev,
+      [folderId]: !prev[folderId]
+    }))
+  }
+
+  const renderFileTree = (items, level = 0) => {
+    return items.map(item => (
+      <div key={item.id} style={{ marginLeft: `${level * 20}px` }}>
+        {item.type === 'folder' ? (
+          <div>
+            <Button
+              variant="ghost"
+              className="w-full justify-start"
+              onClick={() => toggleFolder(item.id)}
+            >
+              {expandedFolders[item.id] ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
+              <Folder className="mr-2 h-4 w-4" />
+              {item.name}
+            </Button>
+            {expandedFolders[item.id] && item.children && renderFileTree(item.children, level + 1)}
+          </div>
+        ) : (
+          <Button
+            variant="ghost"
+            className="w-full justify-start"
+            onClick={() => onFileSelect(item)}
+          >
+            {item.type === 'document' && <FileText className="mr-2 h-4 w-4" />}
+            {item.type === 'spreadsheet' && <Table className="mr-2 h-4 w-4" />}
+            {item.type === 'presentation' && <Presentation className="mr-2 h-4 w-4" />}
+            {item.name}
+          </Button>
+        )}
+      </div>
+    ))
+  }
+
+  return (
+    <div className="bg-card text-card-foreground p-4 rounded-lg shadow">
+      <h2 className="text-xl font-semibold mb-4">File Explorer</h2>
+      {renderFileTree(files)}
+    </div>
+  )
+}
+
 function Dashboard({ user, onLogout }) {
   const [activeApp, setActiveApp] = useState(null)
   const [spreadsheets, setSpreadsheets] = useState([])
   const [documents, setDocuments] = useState([])
+  const [presentations, setPresentations] = useState([])
+  const [files, setFiles] = useState([
+    {
+      id: 'root',
+      name: 'My Files',
+      type: 'folder',
+      children: [
+        {
+          id: 'documents',
+          name: 'Documents',
+          type: 'folder',
+          children: []
+        },
+        {
+          id: 'spreadsheets',
+          name: 'Spreadsheets',
+          type: 'folder',
+          children: []
+        },
+        {
+          id: 'presentations',
+          name: 'Presentations',
+          type: 'folder',
+          children: []
+        }
+      ]
+    }
+  ])
 
   const openApp = (app) => {
     setActiveApp(app)
@@ -188,21 +280,58 @@ function Dashboard({ user, onLogout }) {
     const newSpreadsheet = {
       id: Date.now(),
       name: `Spreadsheet ${spreadsheets.length + 1}`,
-      lastEdited: new Date().toLocaleString()
+      type: 'spreadsheet',
+      lastEdited: new Date().toLocaleString(),
+      data: Array(10).fill(null).map(() => Array(10).fill(""))
     }
     setSpreadsheets([...spreadsheets, newSpreadsheet])
-    setActiveApp('spreadsheet')
+    setFiles(prevFiles => {
+      const newFiles = JSON.parse(JSON.stringify(prevFiles))
+      const spreadsheetsFolder = newFiles[0].children.find(folder => folder.id === 'spreadsheets')
+      spreadsheetsFolder.children.push(newSpreadsheet)
+      return newFiles
+    })
+    setActiveApp({ type: 'spreadsheet', id: newSpreadsheet.id })
   }
 
   const createNewDocument = () => {
     const newDocument = {
       id: Date.now(),
       name: `Document ${documents.length + 1}`,
+      type: 'document',
       content: "",
       lastEdited: new Date().toLocaleString()
     }
     setDocuments([...documents, newDocument])
+    setFiles(prevFiles => {
+      const newFiles = JSON.parse(JSON.stringify(prevFiles))
+      const documentsFolder = newFiles[0].children.find(folder => folder.id === 'documents')
+      documentsFolder.children.push(newDocument)
+      return newFiles
+    })
     setActiveApp({ type: 'document', id: newDocument.id })
+  }
+
+  const createNewPresentation = () => {
+    const newPresentation = {
+      id: Date.now(),
+      name: `Presentation ${presentations.length + 1}`,
+      type: 'presentation',
+      slides: [{ id: 1, title: "Title Slide", content: "Click to add content" }],
+      lastEdited: new Date().toLocaleString()
+    }
+    setPresentations([...presentations, newPresentation])
+    setFiles(prevFiles => {
+      const newFiles = JSON.parse(JSON.stringify(prevFiles))
+      const presentationsFolder = newFiles[0].children.find(folder => folder.id === 'presentations')
+      presentationsFolder.children.push(newPresentation)
+      return newFiles
+    })
+    setActiveApp({ type: 'presentation', id: newPresentation.id })
+  }
+
+  const handleFileSelect = (file) => {
+    setActiveApp({ type: file.type, id: file.id })
   }
 
   return (
@@ -220,73 +349,125 @@ function Dashboard({ user, onLogout }) {
         </div>
       </header>
       <main className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-card text-card-foreground p-6 rounded-lg shadow">
-            <h2 className="text-xl font-semibold mb-4">Quick Access</h2>
-            <ul className="space-y-2">
-              <li><Button variant="ghost" className="w-full justify-start" onClick={createNewSpreadsheet}><Table className="mr-2 h-4 w-4" /> New Spreadsheet</Button></li>
-              <li>
-                <Button variant="ghost" className="w-full justify-start" onClick={createNewDocument}>
-                  <FileText className="mr-2 h-4 w-4" /> New Document
-                </Button>
-              </li>
-              <li><Button variant="ghost" className="w-full justify-start"><Presentation className="mr-2 h-4 w-4" /> New Presentation</Button></li>
-            </ul>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <div className="md:col-span-1">
+            <FileExplorer files={files} onFileSelect={handleFileSelect} />
           </div>
-          <div className="bg-card text-card-foreground p-6 rounded-lg shadow md:col-span-2">
-            <h2 className="text-xl font-semibold mb-4">Recent Files</h2>
-            <ul className="space-y-2">
-              {spreadsheets.map(spreadsheet => (
-                <li key={spreadsheet.id} className="flex items-center justify-between p-2 hover:bg-accent rounded">
-                  <span className="flex items-center"><Table className="mr-2 h-4 w-4" /> {spreadsheet.name}</span>
-                  <span className="text-sm text-muted-foreground">Edited {spreadsheet.lastEdited}</span>
-                </li>
-              ))}
-              {documents.map(document => (
-                <li key={document.id} className="flex items-center justify-between p-2 hover:bg-accent rounded">
-                  <span className="flex items-center"><FileText className="mr-2 h-4 w-4" /> {document.name}</span>
-                  <span className="text-sm text-muted-foreground">Edited {document.lastEdited}</span>
-                </li>
-              ))}
-              <li className="flex items-center justify-between p-2 hover:bg-accent rounded">
-                <span className="flex items-center"><Presentation className="mr-2 h-4 w-4" /> Company Overview.pptx</span>
-                <span className="text-sm text-muted-foreground">Edited 3 days ago</span>
-              </li>
-            </ul>
+          <div className="md:col-span-3">
+            <div className="bg-card text-card-foreground p-6 rounded-lg shadow">
+              <h2 className="text-xl font-semibold mb-4">Quick Access</h2>
+              <div className="flex flex-wrap gap-4">
+                <Button onClick={createNewSpreadsheet}><Table className="mr-2 h-4 w-4" /> New Spreadsheet</Button>
+                <Button onClick={createNewDocument}><FileText className="mr-2 h-4 w-4" /> New Document</Button>
+                <Button onClick={createNewPresentation}><Presentation className="mr-2 h-4 w-4" /> New Presentation</Button>
+              </div>
+            </div>
+            <div className="mt-6">
+              {activeApp && activeApp.type === 'spreadsheet' && (
+                <Spreadsheet
+                  spreadsheet={spreadsheets.find(s => s.id === activeApp.id)}
+                  onClose={closeApp}
+                  onSave={(updatedSpreadsheet) => {
+                    setSpreadsheets(spreadsheets.map(s => s.id === updatedSpreadsheet.id ? updatedSpreadsheet : s))
+                  }}
+                />
+              )}
+              {activeApp && activeApp.type === 'document' && (
+                <DocumentEditor
+                  document={documents.find(doc => doc.id === activeApp.id)}
+                  onClose={closeApp}
+                  onSave={(updatedDocument) => {
+                    setDocuments(documents.map(doc => doc.id === updatedDocument.id ? updatedDocument : doc))
+                  }}
+                />
+              )}
+              {activeApp && activeApp.type ===   'presentation' && (
+                <PresentationEditor
+                  presentation={presentations.find(p => p.id === activeApp.id)}
+                  onClose={closeApp}
+                  onSave={(updatedPresentation) => {
+                    setPresentations(presentations.map(p => p.id === updatedPresentation.id ? updatedPresentation : p))
+                  }}
+                />
+              )}
+            </div>
           </div>
         </div>
-        {activeApp === 'spreadsheet' && (
-          <div className="mt-8">
-            <Spreadsheet onClose={closeApp} />
-          </div>
-        )}
-        {activeApp && activeApp.type === 'document' && (
-          <div className="mt-8">
-            <DocumentEditor
-              document={documents.find(doc => doc.id === activeApp.id)}
-              onClose={closeApp}
-              onSave={(updatedDocument) => {
-                setDocuments(documents.map(doc => doc.id === updatedDocument.id ? updatedDocument : doc))
-              }}
-            />
-          </div>
-        )}
       </main>
     </div>
   )
 }
 
-function Spreadsheet({ onClose }) {
-  const columns = ['A', 'B', 'C', 'D', 'E']
-  const rows = [1, 2, 3, 4, 5]
+function Spreadsheet({ spreadsheet, onClose, onSave }) {
+  const [data, setData] = useState(spreadsheet.data)
+  const [selectedCell, setSelectedCell] = useState(null)
+  const [formula, setFormula] = useState("")
+
+  const columns = Array.from({ length: 26 }, (_, i) => String.fromCharCode(65 + i))
+  const rows = Array.from({ length: 100 }, (_, i) => i + 1)
+
+  const handleCellChange = (rowIndex, colIndex, value) => {
+    const newData = [...data]
+    newData[rowIndex][colIndex] = value
+    setData(newData)
+  }
+
+  const handleSave = () => {
+    onSave({
+      ...spreadsheet,
+      data: data,
+      lastEdited: new Date().toLocaleString()
+    })
+  }
+
+  const handleFormulaChange = (e) => {
+    setFormula(e.target.value)
+  }
+
+  const handleFormulaSubmit = () => {
+    if (selectedCell) {
+      const [row, col] = selectedCell
+      handleCellChange(row, col, formula)
+      setFormula("")
+    }
+  }
+
+  const evaluateFormula = (formula, row, col) => {
+    // This is a simple implementation. In a real app, you'd want a more robust formula parser.
+    try {
+      // Replace cell references with their values
+      const formulaWithValues = formula.replace(/[A-Z]\d+/g, (match) => {
+        const colIndex = match.charCodeAt(0) - 65
+        const rowIndex = parseInt(match.slice(1)) - 1
+        return data[rowIndex][colIndex] || 0
+      })
+      return eval(formulaWithValues)
+    } catch (error) {
+      return "#ERROR"
+    }
+  }
 
   return (
     <div className="bg-background p-4 rounded-lg shadow-lg">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xl font-semibold">New Spreadsheet</h3>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
+        <h3 className="text-xl font-semibold">{spreadsheet.name}</h3>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" onClick={handleSave}>
+            Save
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+      <div className="mb-4 flex gap-2">
+        <Input
+          value={formula}
+          onChange={handleFormulaChange}
+          placeholder="Enter formula (e.g., =A1+B1)"
+          className="flex-grow"
+        />
+        <Button onClick={handleFormulaSubmit}>Apply</Button>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse">
@@ -299,12 +480,17 @@ function Spreadsheet({ onClose }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map(row => (
+            {rows.map((row, rowIndex) => (
               <tr key={row}>
                 <th className="border border-input p-2 text-center">{row}</th>
-                {columns.map(column => (
+                {columns.map((column, colIndex) => (
                   <td key={`${row}${column}`} className="border border-input p-2">
-                    <Input className="w-full h-full border-none p-0" />
+                    <Input
+                      value={data[rowIndex][colIndex]}
+                      onChange={(e) => handleCellChange(rowIndex, colIndex, e.target.value)}
+                      onFocus={() => setSelectedCell([rowIndex, colIndex])}
+                      className="w-full h-full border-none p-0"
+                    />
                   </td>
                 ))}
               </tr>
@@ -318,6 +504,8 @@ function Spreadsheet({ onClose }) {
 
 function DocumentEditor({ document, onClose, onSave }) {
   const [content, setContent] = useState(document.content)
+  const [selectedText, setSelectedText] = useState("")
+  const textareaRef = useRef(null)
 
   const handleSave = () => {
     const updatedDocument = {
@@ -326,6 +514,26 @@ function DocumentEditor({ document, onClose, onSave }) {
       lastEdited: new Date().toLocaleString()
     }
     onSave(updatedDocument)
+  }
+
+  const applyStyle = (style) => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      const selectedText = content.substring(start, end)
+      const newContent = content.substring(0, start) + `<${style}>${selectedText}</${style}>` + content.substring(end)
+      setContent(newContent)
+    }
+  }
+
+  const handleSelect = () => {
+    const textarea = textareaRef.current
+    if (textarea) {
+      const start = textarea.selectionStart
+      const end = textarea.selectionEnd
+      setSelectedText(content.substring(start, end))
+    }
   }
 
   return (
@@ -341,9 +549,21 @@ function DocumentEditor({ document, onClose, onSave }) {
           </Button>
         </div>
       </div>
+      <div className="mb-4 flex gap-2">
+        <Toggle onClick={() => applyStyle("b")}><Bold className="h-4 w-4" /></Toggle>
+        <Toggle onClick={() => applyStyle("i")}><Italic className="h-4 w-4" /></Toggle>
+        <Toggle onClick={() => applyStyle("u")}><Underline className="h-4 w-4" /></Toggle>
+        <Toggle onClick={() => applyStyle("left")}><AlignLeft className="h-4 w-4" /></Toggle>
+        <Toggle onClick={() => applyStyle("center")}><AlignCenter className="h-4 w-4" /></Toggle>
+        <Toggle onClick={() => applyStyle("right")}><AlignRight className="h-4 w-4" /></Toggle>
+        <Toggle onClick={() => applyStyle("ul")}><List className="h-4 w-4" /></Toggle>
+        <Toggle onClick={() => applyStyle("ol")}><ListOrdered className="h-4 w-4" /></Toggle>
+      </div>
       <Textarea
+        ref={textareaRef}
         value={content}
         onChange={(e) => setContent(e.target.value)}
+        onSelect={handleSelect}
         className="w-full h-[400px] p-2"
         placeholder="Start typing your document here..."
       />
@@ -351,9 +571,129 @@ function DocumentEditor({ document, onClose, onSave }) {
   )
 }
 
+function PresentationEditor({ presentation, onClose, onSave }) {
+  const [slides, setSlides] = useState(presentation.slides)
+  const [currentSlide, setCurrentSlide] = useState(0)
+  const [previewMode, setPreviewMode] = useState(false)
+
+  const handleSave = () => {
+    const updatedPresentation = {
+      ...presentation,
+      slides: slides,
+      lastEdited: new Date().toLocaleString()
+    }
+    onSave(updatedPresentation)
+  }
+
+  const addSlide = () => {
+    const newSlide = {
+      id: slides.length + 1,
+      title: `Slide ${slides.length + 1}`,
+      content: "Click to add content",
+      layout: "title-content"
+    }
+    setSlides([...slides, newSlide])
+    setCurrentSlide(slides.length)
+  }
+
+  const updateSlide = (field, value) => {
+    const updatedSlides = slides.map((slide, index) =>
+      index === currentSlide ? { ...slide, [field]: value } : slide
+    )
+    setSlides(updatedSlides)
+  }
+
+  const changeLayout = (layout) => {
+    updateSlide("layout", layout)
+  }
+
+  return (
+    <div className="bg-background p-4 rounded-lg shadow-lg">
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-xl font-semibold">{presentation.name}</h3>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" onClick={handleSave}>
+            Save
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setPreviewMode(!previewMode)}>
+            {previewMode ? "Edit" : "Preview"}
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+      {previewMode ? (
+        <div className="aspect-video bg-white p-8 flex flex-col justify-center items-center">
+          <h2 className="text-4xl font-bold mb-4">{slides[currentSlide].title}</h2>
+          <p className="text-xl">{slides[currentSlide].content}</p>
+          <div className="mt-8 flex gap-4">
+            <Button onClick={() => setCurrentSlide(Math.max(0, currentSlide - 1))} disabled={currentSlide === 0}>Previous</Button>
+            <Button onClick={() => setCurrentSlide(Math.min(slides.length - 1, currentSlide + 1))} disabled={currentSlide === slides.length - 1}>Next</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex gap-4">
+          <div className="w-1/4 bg-muted p-4 rounded-lg">
+            <h4 className="font-semibold mb-2">Slides</h4>
+            <ul className="space-y-2">
+              {slides.map((slide, index) => (
+                <li
+                  key={slide.id}
+                  className={`cursor-pointer p-2 rounded ${
+                    index === currentSlide ? "bg-primary text-primary-foreground" : "hover:bg-accent"
+                  }`}
+                  onClick={() => setCurrentSlide(index)}
+                >
+                  {slide.title}
+                </li>
+              ))}
+            </ul>
+            <Button className="w-full mt-4" onClick={addSlide}>
+              <Plus className="mr-2 h-4 w-4" /> Add Slide
+            </Button>
+          </div>
+          <div className="w-3/4">
+            <div className="mb-4">
+              <Select onValueChange={changeLayout} defaultValue={slides[currentSlide].layout}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select layout" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="title-content">Title and Content</SelectItem>
+                  <SelectItem value="two-column">Two Column</SelectItem>
+                  <SelectItem value="image-text">Image and Text</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="bg-card p-4 rounded-lg shadow aspect-video flex flex-col justify-center items-center">
+              <Input
+                value={slides[currentSlide].title}
+                onChange={(e) => updateSlide("title", e.target.value)}
+                className="text-2xl font-bold mb-4 text-center bg-transparent border-none"
+                placeholder="Slide Title"
+              />
+              <Textarea
+                value={slides[currentSlide].content}
+                onChange={(e) => updateSlide("content", e.target.value)}
+                className="w-full h-[200px] text-center bg-transparent border-none resize-none"
+                placeholder="Slide Content"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function LandingPage() {
   const [user, setUser] = useState(null)
   const [showSignUp, setShowSignUp] = useState(false)
+  const [users, setUsers] = useState(() => {
+    const savedUsers = localStorage.getItem('users')
+    return savedUsers ? JSON.parse(savedUsers) : []
+  })
 
   const handleSignIn = (userData) => {
     setUser(userData)
@@ -374,9 +714,9 @@ export default function LandingPage() {
 
   if (!user) {
     if (showSignUp) {
-      return <SignUpPage onSignUp={handleSignUp} />
+      return <SignUpPage onSignUp={handleSignUp} users={users} setUsers={setUsers} />
     } else {
-      return <SignInPage onSignIn={handleSignIn} onSignUp={() => setShowSignUp(true)} />
+      return <SignInPage onSignIn={handleSignIn} onSignUp={() => setShowSignUp(true)} users={users} />
     }
   }
 
